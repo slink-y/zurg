@@ -34,6 +34,7 @@ A Discord bot to help me streamline downloads to my Raspberry Pi and organize my
     - Size of archive/folder and number of files
     - Any provided note
 - The full log item should be appended to some type of history database/file. It should also be saved within the archive folder if one is created. An abbreviated version formatted for a Discord message should be sent to a #history channel via webhook
+
 ## Considerations
 
 - I don't know if this is an issue, but the status message should be updated an appropriate interval so as not to overload the Pi
