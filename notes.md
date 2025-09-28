@@ -1,7 +1,9 @@
 # Project Notes
 
 ## Proposed flow
-- The interaction starts when either a URL is sent to a specific channel in my server OR a URL is submitted using a slash command provided by the bot as a user app, so I can use start a download anywhere
+- The interaction starts when either a URL is sent
+    - To a specific channel in my server via a simple slash command
+    - A URL is submitted using a slash command provided by the bot as a user app, so I can use start a download anywhere
 - The download type is automatically identified from the provided URL, so the appropriate tool is used
     - `mega`, `ffsend`, or `wget`
 - All files will be downloaded and stored on my connected SSD `/mnt/transformer/`
@@ -26,3 +28,43 @@
 
 - I don't know if this is an issue, but the status message should be updated an appropriate interval so as not to overload the Pi
 - Directories I commonly download to are `music/`, `shared/`, `media/`, `downloads/`
+
+## Embed layout
+
+Author: Identified service (MEGA, ffsend)
+Author image: service icon
+Title: Indentified file or folder name
+    - need to figure out how to indentify that with megacmd and ffsend
+Title URL: original download URL from command
+Description: something like this
+
+    ⏳ Downloading...
+
+    [▓▓▓▓░░░░░░] - 40%
+
+    40 MB of 100
+    16 MB/s
+
+    📁 (destination path)
+    📒 (notes if added)
+
+- the status line could update from
+    - "🔎 Starting download..."
+    - "⏳ Downloading..." (<50% complete)
+    - "⌛ Downloading..." (>50%)
+    - "📦 Extracting files..."
+    - "☑️ Download finished, waiting for destination selection..."
+    - "➡️ Moving to destination..."
+    - "✅ Download complete."
+- The progress bar will update with download percentage
+- The download speed should be updated if the download tool provides it
+- The destination line should show "📁 Select a destination" until one is added in the dropdown, and then show that path
+- The notes line should only show when a note is added
+
+### Buttons
+
+- A destination dropdown with common selection or a custom option (need to decide how to submit custom selection)
+- "Add notes" should change to "Edit notes" after its submitted
+- "Cancel" to cancel the download
+
+
