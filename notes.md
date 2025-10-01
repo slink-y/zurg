@@ -2,10 +2,10 @@
 
 ## Proposed flow
 - The interaction starts when either a URL is sent
-    - To a specific channel in my server via a simple slash command
-    - A URL is submitted using a slash command provided by the bot as a user app, so I can use start a download anywhere
+    - To a specific channel in my server via a simple /download command
+    - A URL is submitted using a slash command provided by the bot as a user app, so I can start a download anywhere (but it still directs to a progress message in the download channel)
 - The download type is automatically identified from the provided URL, so the appropriate tool is used
-    - `mega`, `ffsend`, or `wget`
+    - `MEGAcmd`, `ffsend`, or `wget`
 - All files will be downloaded and stored on my connected SSD `/mnt/transformer/`
 - A directory can be created for each download in `/mnt/transformer/tmp`
 - As the download begins, the user can select the destination folder
@@ -53,7 +53,7 @@ Description: something like this
     - "⏳ Downloading..." (<50% complete)
     - "⌛ Downloading..." (>50%)
     - "📦 Extracting files..."
-    - "☑️ Download finished, waiting for destination selection..."
+    - "⏸️ Waiting for destination..."
     - "➡️ Moving to destination..."
     - "✅ Download complete."
 - The progress bar will update with download percentage
@@ -67,4 +67,40 @@ Description: something like this
 - "Add notes" should change to "Edit notes" after its submitted
 - "Cancel" to cancel the download
 
+### Download progress
 
+**mega-get**
+- one line updates with progress in this format:
+
+`
+TRANSFERRING ||#############################.........||(112/147 MB:  76.12 %)
+`
+
+
+**ffsend download**
+- one line updates with progress, percentage, speed, and time remaining:
+
+`
+Download & Decrypt 21.26 MB / 23.95 MB [===============>-] 88.75 % 5.14 MB/s 1s
+`
+
+
+**wget**
+- detailed progress message with file name, percentage, size completed (but not total?), speed, and time remaining.
+
+```
+--2025-09-29 20:54:43--  https://ash-speed.hetzner.com/100MB.bin
+Resolving ash-speed.hetzner.com (ash-speed.hetzner.com)... 5.161.7.195, 2a01:4ff:ef::fa57:1
+Connecting to ash-speed.hetzner.com (ash-speed.hetzner.com)|5.161.7.195|:443... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 104857600 (100M) [application/octet-stream]
+Saving to: ‘100MB.bin.2’
+
+100MB.bin.2          30%[=====>              ]  30.40M  6.68MB/s    eta 14s    
+```
+and when completed it updates to:
+```
+100MB.bin.2         100%[===================>] 100.00M  5.08MB/s    in 23s     
+
+2025-09-29 20:55:07 (4.37 MB/s) - ‘100MB.bin.2’ saved [104857600/104857600]
+```
