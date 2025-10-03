@@ -83,7 +83,13 @@ TRANSFERRING ||#############################.........||(112/147 MB:  76.12 %)
 `
 Download & Decrypt 21.26 MB / 23.95 MB [===============>-] 88.75 % 5.14 MB/s 1s
 `
-
+`ffsend info` to fetch details, example:
+ID:         b087066715
+Name:       my-file.txt
+Size:       12 KiB
+MIME:       text/plain
+Downloads:  0 of 10
+Expiry:     18h2m (64928s)
 
 **wget**
 - detailed progress message with file name, percentage, size completed (but not total?), speed, and time remaining.
@@ -104,3 +110,47 @@ and when completed it updates to:
 
 2025-09-29 20:55:07 (4.37 MB/s) - ‘100MB.bin.2’ saved [104857600/104857600]
 ```
+
+## File Structure
+
+/mnt/transformer/
+├── tmp/                         # Temporary download location
+│   └── {download_id}/           # Unique folder per download
+│       ├── archive.zip          # Original archive (if applicable)
+│       └── extracted/           # Extracted contents
+│
+├── storage/                     # Permanent storage
+│   ├── archives/                # Archived original files
+│   |   └── {download_id}/
+│   |       ├── archive.zip
+|   |       └── {download_id}.json
+|   |
+|   └──logs/                     # Logging system
+|      ├── downloads.json        # Main download history
+|      ├── errors.log            # Error logs
+|      └── {download_id}.json     # Individual download logs
+│
+├── music/                       # Common destinations
+├── media/
+├── shared/
+└── downloads/
+
+log file example:
+```
+{
+  "id": "dl_20250129_143022_abc123",
+  "timestamp": "2025-01-29T14:30:22Z",
+  "url": "https://mega.nz/file/...",
+  "service": "MEGA",
+  "file_name": "example.zip",
+  "destination": "/mnt/transformer/music/",
+  "final_path": "/mnt/transformer/music/example/",
+  "size_bytes": 104857600,
+  "archive_size_bytes": 104857600,
+  "file_count": 15,
+  "download_duration": 23.5,
+  "note": "Music album from friend",
+  "status": "completed"
+}
+```
+
