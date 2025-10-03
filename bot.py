@@ -24,6 +24,10 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# Global variables
+downloads = {}  # download_id -> DownloadManager
+last_downloads = {}  # user_id -> download_id (for /note command)
+
 # Helper function to format URLs for Discord embeds
 def format_url(url: str) -> str:
     if not url:
@@ -143,6 +147,9 @@ class DownloadManager:
         self.file_count = 0
         self.has_archive_file = False  # Track if we actually saved an archive file
         self.history = DownloadHistory()
+        
+        # Track this as the user's last download for /note command
+        last_downloads[message.author.id] = self.download_id
         
         # Ensure temp directory exists
         os.makedirs(self.temp_dir, exist_ok=True)
@@ -397,7 +404,103 @@ class DownloadManager:
             raise Exception(f"ffsend download error: {str(e)}")
     
     async def _download_with_mega(self):
-   
+        """Download using mega-get"""
+        try:
+            # Run mega-get command
+            process = await asyncio.create_subprocess_exec(
+                "mega-get", self.url, self.temp_dir,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                stdin=asyncio.subprocess.PIPE
+            )
+            
+            # Stream output and parse progress as it arrives
+            buffer = ""
+            ansi_re = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')
+            # MEGA progress format: TRANSFERRING ||#############################.........||(112/147 MB:  76.12 %)
+            mega_prog_re = re.compile(r'TRANSFERRING.*?\((\d+)/(\d+)\s*MB:\s*(\d+\.\d+)\s*%\s*\)', re.IGNORECASE)
+            
+            while True:
+                chunk = await process.stdout.read(1024)
+                if not chunk:
+                    break
+                try:
+                    text = chunk.decode(errors='ignore')
+                except Exception:
+                    text = chunk.decode('utf-8', errors='ignore')
+                
+                # Strip ANSI sequences and clean up the text
+                clean = ansi_re.sub('', text)
+                clean = clean.replace('\x1b[K', '')
+                clean = clean.replace('\x00', '')  # Remove null characters
+                clean = clean.replace('\r', '')  # Remove carriage returns
+                
+                # Append to buffer
+                buffer += clean
+                
+                # Look for MEGA progress in the buffer (handle overwriting lines)
+                matches = list(mega_prog_re.finditer(buffer))
+                if matches:
+                    m = matches[-1]  # Get the last (most recent) match
+                    try:
+                        downloaded_mb = float(m.group(1))
+                        total_mb = float(m.group(2))
+                        progress_pct = float(m.group(3))
+                        
+                        print(f"MEGA progress: {downloaded_mb}/{total_mb} MB ({progress_pct}%)")
+                        
+                        self.downloaded_size = downloaded_mb
+                        self.total_size = total_mb
+                        self.progress = progress_pct
+                        
+                        # Update embed with progress
+                        await self._update_embed()
+                    except Exception as e:
+                        print(f"MEGA progress parsing error: {e}")
+                        pass
+                    
+                    # Keep only the last part of the buffer to avoid memory issues
+                    buffer = buffer[-1024:]
+                
+                # Prevent buffer growth
+                if len(buffer) > 8192:
+                    buffer = buffer[-8192:]
+            
+            # Wait for process to exit
+            returncode = await process.wait()
+            
+            if returncode == 0:
+                self.download_duration = time.time() - self.download_start_time
+                print(f"MEGA download completed in {self.download_duration:.2f} seconds")
+                
+                # Discover actual file name and size after download
+                for file in os.listdir(self.temp_dir):
+                    file_path = os.path.join(self.temp_dir, file)
+                    if os.path.isfile(file_path):
+                        self.file_name = file
+                        self.archive_size = os.path.getsize(file_path)
+                        print(f"Downloaded file: {file} ({self.archive_size} bytes)")
+                        break
+                    elif os.path.isdir(file_path):
+                        # If it's a directory, use the directory name
+                        self.file_name = file
+                        # Calculate total size of directory
+                        total_size_bytes = 0
+                        file_count = 0
+                        for root, dirs, files in os.walk(file_path):
+                            for f in files:
+                                total_size_bytes += os.path.getsize(os.path.join(root, f))
+                                file_count += 1
+                        self.archive_size = total_size_bytes
+                        self.file_count = file_count
+                        print(f"Downloaded directory: {file} ({file_count} files, {total_size_bytes} bytes)")
+                        break
+            else:
+                raise Exception("mega-get download failed")
+                
+        except Exception as e:
+            raise Exception(f"MEGA download error: {str(e)}")
+    
     async def _download_with_wget(self):
         """Download using wget (placeholder for now)"""
         # TODO: Implement wget download
@@ -465,12 +568,15 @@ class DownloadManager:
             else:
                 size_info = f"{self.downloaded_size:.1f} MB of ?"
             
-            speed_info = f"{self.speed:.2f} MB/s" if self.speed > 0 else "0.00 MB/s"
-            
-            # Grey out size and speed info after completion
-            if self.status == "✅ Download complete.":
-                size_info = f"-# {size_info}"
-                speed_info = f"-# {speed_info}"
+            # Speed info (only for ffsend and direct downloads, not MEGA)
+            if self.service != "MEGA":
+                speed_info = f"{self.speed:.2f} MB/s" if self.speed > 0 else "0.00 MB/s"
+                
+                # Grey out speed info after completion
+                if self.status == "✅ Download complete.":
+                    speed_info = f"-# {speed_info}"
+            else:
+                speed_info = None
             
             # Destination info
             dest_info = f"📁 {self.destination}" if self.destination else "📁 Select a destination"
@@ -478,13 +584,20 @@ class DownloadManager:
             # Notes info - only show if note exists
             note_info = f"📒 {self.note}" if self.note else ""
             
-            description = (
-                f"{self.status}\n\n"
-                f"[{progress_bar}] - **{self.progress}%**\n\n"
-                f"{size_info}\n"
-                f"{speed_info}\n\n"
-                f"{dest_info}"
-            )
+            # Build description parts
+            description_parts = [
+                f"{self.status}\n\n",
+                f"[{progress_bar}] - **{self.progress}%**\n\n",
+                f"{size_info}"
+            ]
+            
+            # Add speed info only if available (not for MEGA)
+            if speed_info is not None:
+                description_parts.append(f"\n{speed_info}")
+            
+            description_parts.extend(["\n\n", f"{dest_info}"])
+            
+            description = "".join(description_parts)
             
             # Show notes line after submitted
             if note_info:
@@ -512,7 +625,7 @@ class DownloadManager:
         asyncio.create_task(self._update_embed())
         
         # If download is already complete and waiting for destination, complete it now
-        if self.status == "⏸️ Waiting for destination...":
+        if self.status == "⏸⚠️ Waiting for destination...":
             self.status = "➡️ Moving to destination..."
             asyncio.create_task(self._update_embed())
             # Complete the download process
@@ -748,7 +861,6 @@ class NoteModal(discord.ui.Modal, title="Add a Note"):
 
 @bot.tree.command(name="download", description="Start download from URL")
 @app_commands.describe(url="The URL to download from")
-@app_commands.guilds(GUILD_ID)
 async def download(interaction: discord.Interaction, url: str):
     # Format the URL to ensure it's valid for Discord embeds
     formatted_url = format_url(url)
@@ -790,7 +902,6 @@ async def test_command(interaction: discord.Interaction):
     await interaction.response.send_message("✅ Bot is working!", ephemeral=True)
 
 @bot.tree.command(name="lastlog", description="Show the last download log")
-@app_commands.guilds(GUILD_ID)
 async def last_log(interaction: discord.Interaction):
     try:
         # Read the downloads log file
@@ -884,16 +995,57 @@ async def last_log(interaction: discord.Interaction):
             ephemeral=True
         )
 
+@bot.tree.command(name="note", description="Add or edit a note for your last download")
+@app_commands.describe(content="The note content to add or edit")
+async def note_command(interaction: discord.Interaction, content: str):
+    try:
+        user_id = interaction.user.id
+        
+        # Check if user has a recent download
+        if user_id not in last_downloads:
+            await interaction.response.send_message(
+                "❌ No recent download found to add a note to. Start a download first!",
+                ephemeral=True
+            )
+            return
+        
+        download_id = last_downloads[user_id]
+        
+        # Check if the download still exists
+        if download_id not in downloads:
+            await interaction.response.send_message(
+                "❌ Your last download is no longer active. Start a new download first!",
+                ephemeral=True
+            )
+            return
+        
+        download_manager = downloads[download_id]
+        
+        # Set the note
+        download_manager.set_note(content)
+        
+        # Update the embed to show the new note
+        await download_manager._update_embed()
+        
+        await interaction.response.send_message(
+            f"✅ Note {'updated' if download_manager.note else 'added'} successfully!",
+            ephemeral=True
+        )
+        
+    except Exception as e:
+        await interaction.response.send_message(
+            f"❌ Error adding note: {str(e)}",
+            ephemeral=True
+        )
+
 @bot.tree.command(name="refresh", description="Force refresh bot commands")
-@app_commands.guilds(GUILD_ID)
 async def refresh_commands(interaction: discord.Interaction):
     try:
         # Clear all commands
         bot.tree.clear_commands(guild=None)
-        bot.tree.clear_commands(guild=GUILD_ID)
         
-        # Sync to guild
-        await bot.tree.sync(guild=GUILD_ID)
+        # Sync commands globally
+        synced = await bot.tree.sync()
         
         await interaction.response.send_message(
             "🔄 Commands refreshed.",
@@ -912,11 +1064,12 @@ async def on_connect():
 @bot.event
 async def on_ready():
     print("Logged in as {bot.user}")
-    try:
-       synced = await bot.tree.sync(guild=GUILD_ID)
-       print(f"✅ Synced {len(synced)} commands to guild {GUILD_ID.id}")
-    except Exception as e:
-        print(f"❌ Error syncing commands: {e}")
+    #try:
+       # Sync commands globally (to all servers the bot is in)
+       #synced = await bot.tree.sync()
+       #print(f"✅ Synced {len(synced)} commands globally")
+    #except Exception as e:
+        #print(f"❌ Error syncing commands: {e}")
 
 @bot.event
 async def on_message(message):
