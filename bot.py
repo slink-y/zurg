@@ -1064,12 +1064,12 @@ async def on_connect():
 @bot.event
 async def on_ready():
     print("Logged in as {bot.user}")
-    #try:
-       # Sync commands globally (to all servers the bot is in)
-       #synced = await bot.tree.sync()
-       #print(f"✅ Synced {len(synced)} commands globally")
-    #except Exception as e:
-        #print(f"❌ Error syncing commands: {e}")
+    try:
+    # Sync commands globally (to all servers the bot is in)
+        synced = await bot.tree.sync()
+        print(f"✅ Synced {len(synced)} commands globally")
+    except Exception as e:
+        print(f"❌ Error syncing commands: {e}")
 
 @bot.event
 async def on_message(message):
